@@ -7,7 +7,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.AsynchronousSocketChannel;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import com.github.magicsih.adb4j.listener.AdbShellCommandPollingListenerHolder;
+import com.github.magicsih.adb4j.listener.AdbPollingCommand;
 
 /**
  * @author sih
@@ -24,7 +24,7 @@ public class ChannelContext {
   private final ByteBuffer readBuffer;
   private final ByteBuffer writeBuffer;
   private final ByteBuffer readMemory; // to Read a sequence of bytes from this channel into a subsequence of the given buffers
-  private final AdbShellCommandPollingListenerHolder listenerHolder;
+  private final AdbPollingCommand listenerHolder;
   
   public ChannelContext(AdbDevice adbDevice, AsynchronousSocketChannel channel) {
     super();
@@ -36,7 +36,7 @@ public class ChannelContext {
     this.listenerHolder = null;
   }
   
-  public ChannelContext(AdbDevice adbDevice, AsynchronousSocketChannel channel, AdbShellCommandPollingListenerHolder listenerHolder) {
+  public ChannelContext(AdbDevice adbDevice, AsynchronousSocketChannel channel, AdbPollingCommand listenerHolder) {
     super();
     this.adbDevice = adbDevice;
     this.channel = channel;
@@ -113,7 +113,7 @@ public class ChannelContext {
     return b;
   }
 
-  public AdbShellCommandPollingListenerHolder getListenerHolder() {
+  public AdbPollingCommand getListenerHolder() {
     return listenerHolder;
   }
 

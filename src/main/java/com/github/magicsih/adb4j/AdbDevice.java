@@ -17,8 +17,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import com.github.magicsih.adb4j.listener.AdbShellCommandPollingListener;
-import com.github.magicsih.adb4j.listener.AdbShellCommandPollingListenerHolder;
+import java.util.regex.Pattern;
+import com.github.magicsih.adb4j.listener.AdbPollingCommand;
 
 /**
  * @author sih
@@ -27,7 +27,7 @@ import com.github.magicsih.adb4j.listener.AdbShellCommandPollingListenerHolder;
 public class AdbDevice implements AutoCloseable {
 
   private static final Logger LOG = Logger.getLogger(AdbDevice.class.getName());
-
+  
   private AsynchronousSocketChannel client; 
   private final AsynchronousChannelGroup channelGroup;
 
@@ -41,7 +41,11 @@ public class AdbDevice implements AutoCloseable {
   private final Semaphore readSemaphore;
   private final Semaphore writeSemaphore;
 
-  private Map<String, AdbShellCommandPollingListenerHolder> pollingListnerMap;
+  private Map<String, AdbPollingCommand> pollingCommandMap;
+  
+  private String packageName;
+  private String userId;
+  private String pid;
 
   AdbDevice(String deviceId, AsynchronousChannelGroup asynchronousChannelGroup, SocketAddress addr, ExecutorService postWorker) throws IOException {
     super();
@@ -49,7 +53,7 @@ public class AdbDevice implements AutoCloseable {
     this.channelGroup = asynchronousChannelGroup;
     this.addr = addr;
     this.postWorker = postWorker;
-    this.pollingListnerMap = new HashMap<>();
+    this.pollingCommandMap = new HashMap<>();
     this.readSemaphore = new Semaphore(1);
     this.writeSemaphore = new Semaphore(1);
   }
@@ -60,18 +64,18 @@ public class AdbDevice implements AutoCloseable {
   
   public void unregisterPollingListener(String name) {
     String key = deviceId + ":" + name;
-    AdbShellCommandPollingListenerHolder holder = this.pollingListnerMap.remove(key);
-    if(holder != null) {
-      holder.clearListener();
+    AdbPollingCommand command = this.pollingCommandMap.remove(key);
+    if(command != null) {
+      command.clearListener();
     }
   }
 
-  public void registerPollingListener(String name, String command, AdbShellCommandPollingListener listener, boolean keepAlive) {
-    String key = deviceId + ":" + name;
-    if(this.pollingListnerMap.containsKey(key)) {
+  public void registerPollingListener(AdbPollingCommand pollingCommand) {
+    String key = deviceId + ":" + pollingCommand.getName();
+    if(this.pollingCommandMap.containsKey(key)) {
       throw new RuntimeException("listener " + key + " is already registered.");
     }
-    this.pollingListnerMap.put(key, new AdbShellCommandPollingListenerHolder(name, command, listener, keepAlive));
+    this.pollingCommandMap.put(key, pollingCommand);
   }
 
   @Override
@@ -104,7 +108,11 @@ public class AdbDevice implements AutoCloseable {
     }
   }
 
-  public void start() {
+  /**
+   * Start connecting to adb device synchronosuly-
+   * @param packageName
+   */
+  public void start(String packageName) {
     if(this.client != null && this.client.isOpen()) {
       throw new RuntimeException("Channel already started");
     }
@@ -119,40 +127,42 @@ public class AdbDevice implements AutoCloseable {
     }
 
     ChannelContext context = new ChannelContext(this, this.client);
+    Future<Void> connect = client.connect(addr);
+    try {
+      connect.get();
+      log(Level.INFO, "connected to adb host!");
+      
+      log(Level.INFO, "transporting to local device...");
+      writeSynchronouslyForAdb(context, "host:transport:" + deviceId);
+      byte[] okay = readSynchronouslyForExactSize(context,4);
+      assert(Arrays.equals(AdbChannelMessage.OKAY.getPayload(), okay));
 
-    client.connect(addr, context, new CompletionHandler<Void, ChannelContext>() {
-      @Override
-      public void completed(Void result, ChannelContext context) {        
-        log(Level.INFO, "connected to adb host!");
-        try {          
-          log(Level.INFO, "transporting to local device...");
-          writeSynchronously(context, "host:transport:" + deviceId);
-          byte[] okay = readSynchronouslyForExactSize(context,4);
-          assert(Arrays.equals(AdbChannelMessage.OKAY.getPayload(), okay));
+      log(Level.INFO, "starting shell...");
+      writeSynchronouslyForAdb(context, "shell:");
+      okay = readSynchronouslyForExactSize(context,4);
+      assert(Arrays.equals(AdbChannelMessage.OKAY.getPayload(), okay));
 
-          log(Level.INFO, "starting shell...");
-          writeSynchronously(context, "shell:");
-          okay = readSynchronouslyForExactSize(context,4);
-          assert(Arrays.equals(AdbChannelMessage.OKAY.getPayload(), okay));
+      shellHeader = consumeShellHeaderSynchronously(context);
+      log(Level.INFO, "shell started! shell header:" + shellHeader);          
 
-          shellHeader = consumeShellHeaderSynchronously(context);
-          log(Level.INFO, "shell started! shell header:" + shellHeader);          
-
-          pollingListnerMap.forEach((k,h)-> {
-            log(Level.INFO, " polling with command : " + h.getCommand());
-            ChannelContext ctx = new ChannelContext(context.getAdbDevice(), context.getChannel(), h);
-            pollFromAdbShell(ctx);
-          });
-
-        } catch (Exception e) {
-          LOG.warning(e.getMessage());              
-        }
-      }
-
-      @Override
-      public void failed(Throwable exc, ChannelContext context) {        
-        log(Level.WARNING, " connect failed");
-      }});
+      writeSynchronously(context, "dumpsys package " + packageName + " | grep 'userId=' | sed 's/[^0-9]*//g'\n");
+      String rawUserId = readUntilShellHeader(context);
+      String[] split = rawUserId.split("\n");
+      if(split.length < 3) throw new RuntimeException("There is no userId for packageName : " + packageName);
+      this.userId = split[1].replaceAll("[^0-9]+","");
+      log(Level.INFO, packageName + "'s userId=" + userId);
+      
+    } catch (Exception e) {
+      e.printStackTrace();
+    }
+  }
+  
+  public void startPolling() {
+    pollingCommandMap.forEach((k,h)-> {
+      log(Level.INFO, " polling with command : " + h.getCommand());
+      ChannelContext ctx = new ChannelContext(this, this.client, h);
+      pollFromAdbShell(ctx);
+    });
   }
 
   private void pollFromAdbShell(ChannelContext ctx) {
@@ -268,8 +278,7 @@ public class AdbDevice implements AutoCloseable {
             final String data = new String(bytesFromByteBuffer);
 
             postWorker.execute(()->{
-              //              log(Level.FINER, " gets new data :" + data);
-              log(Level.INFO, "DATA:" + ctx.getListenerHolder().getCommand() + " , " + data);
+              log(Level.FINER, "DATA:" + ctx.getListenerHolder().getCommand() + " , " + data);
               ctx.getListenerHolder().getListener().poll(ctx.getAdbDevice(), ctx.getListenerHolder().getName(), ctx.getListenerHolder().getCommand(), data);            
             });
 
@@ -300,18 +309,41 @@ public class AdbDevice implements AutoCloseable {
    * @throws ExecutionException 
    * @throws InterruptedException 
    */
-  private void writeSynchronously(ChannelContext ctx, String message) throws InterruptedException, ExecutionException {
+  private void writeSynchronouslyForAdb(ChannelContext ctx, String message) throws InterruptedException, ExecutionException {
     ctx.fillWriteBufferForAdb(message);
-    Future<Integer> f = ctx.getChannel().write(ctx.getWriteBuffer());
-    Integer written = f.get();
-    log(Level.FINE, " WRITE " + written + " BYTES (writeSynchronously)");
-    if(written < 0) {
-      closeGracefully(ctx);
-      return;
-    }
-    log(Level.FINE, " write synchronously " + written + " bytes");
-    ctx.getWriteBuffer().clear();
+    writeSynchronously(ctx);
   }
+  
+  /**
+   * this write method works synchronously on calling thread.
+   * @param ctx
+   * @param message
+   * @throws ExecutionException 
+   * @throws InterruptedException 
+   */
+  private void writeSynchronously(ChannelContext ctx, String message) throws InterruptedException, ExecutionException {
+    ctx.fillWriteBuffer(message);
+    writeSynchronously(ctx);
+  }
+  
+  /**
+  * this write method works synchronously on calling thread.
+  * @param ctx
+  * @param message
+  * @throws ExecutionException 
+  * @throws InterruptedException 
+  */
+ private void writeSynchronously(ChannelContext ctx) throws InterruptedException, ExecutionException {
+   Future<Integer> f = ctx.getChannel().write(ctx.getWriteBuffer());
+   Integer written = f.get();
+   log(Level.FINE, " WRITE " + written + " BYTES (writeSynchronously)");
+   if(written < 0) {
+     closeGracefully(ctx);
+     return;
+   }
+   log(Level.FINE, " write synchronously " + written + " bytes");
+   ctx.getWriteBuffer().clear();
+ }
 
   /**
    * TODO How to assure if it's the end of shell start header  
@@ -335,6 +367,29 @@ public class AdbDevice implements AutoCloseable {
     log(Level.FINE, " consume shell header synchronously " + read + " bytes - " + shellHeader);
 
     return shellHeader;
+  }
+  
+  private String readUntilShellHeader(ChannelContext ctx) throws Exception {
+    int read = 0;
+    do {
+      read = ctx.getChannel().read(ctx.getReadBuffer()).get();
+      log(Level.FINE, " READ " + read + " BYTES (readPollingDataFromAdbShell - inside sync read)");
+
+      if(read < 0) {
+        closeGracefully(ctx);
+        return "";
+      }
+      ctx.flushReadBufferToReadMemory();
+      if(ctx.lengthOfReadMemory() >= shellHeader.length()) {
+        byte[] lastBytesFromReadMemory = ctx.getLastBytesFromReadMemory(shellHeader.length());
+        if(Arrays.equals(shellHeader.getBytes(), lastBytesFromReadMemory)) {
+          break;
+        }
+      }
+    } while(read > 0);
+    
+    final byte[] bytesFromByteBuffer = ctx.clearAndGetBytesFromReadMemory();
+    return new String(bytesFromByteBuffer);
   }
 
   private byte[] readSynchronouslyForExactSize(ChannelContext ctx, final int size) throws Exception {    

@@ -9,7 +9,7 @@ import com.github.magicsih.adb4j.AdbDevice;
  * @author sih
  *
  */
-public interface AdbShellCommandPollingListener {
+public interface AdbPollingCommandListener {
 
   void poll(AdbDevice device, String name, String command, String data);
   
