@@ -4,11 +4,11 @@
 ### Maven Dependency
 <pre>
 <code>
-<dependency>
-    <groupId>com.github.magicsih</groupId>
-    <artifactId>adb4j</artifactId>
-    <version>0.0.1-SNAPSHOT</version>      
-</dependency>
+&lt;dependency&gt;
+    &lt;groupId&gt;com.github.magicsih&lt;/groupId&gt;
+    &lt;artifactId&gt;adb4j&lt;/artifactId&gt;
+    &lt;version&gt;0.0.1-SNAPSHOT&lt;/version&gt;      
+&lt;/dependency&gt;
 </code>
 </pre>
 
