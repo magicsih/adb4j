@@ -1,5 +1,11 @@
 # adb4j
-Android Debug Bridge for Java
+- Android Debug Bridge for Java.
+- ADB commands can be used in Java programming model. 
+- Device callbacks can be registered.
+- Written in pure Java. no other dependencies.
+
+# Thread Model
+- One device to one thread.
 
 ## Quick Start
 ### Maven Dependency
