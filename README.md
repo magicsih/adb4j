@@ -1,30 +1,36 @@
-# adb4j
-- Android Debug Bridge for Java.
-- ADB commands can be used in Java programming model. 
-- Device callbacks can be registered.
-- Written in pure Java. no other dependencies.
+# ADB4J: Android Debug Bridge for Java
 
-# Thread Model
-- One device to one thread.
+ADB4J is a Java library that provides an easy-to-use interface for Android Debug Bridge (ADB) commands within Java applications. With ADB4J, you can register device callbacks, and execute ADB commands in a Java programming model. The library is written in pure Java and requires no additional dependencies.
+
+## Features
+- Perform ADB commands using Java code
+- Register device callbacks
+- Pure Java implementation with no external dependencies
+- One device per thread model
 
 ## Quick Start
-### Maven Dependency
-<pre>
-<code>
-&lt;dependency&gt;
-    &lt;groupId&gt;com.github.magicsih&lt;/groupId&gt;
-    &lt;artifactId&gt;adb4j&lt;/artifactId&gt;
-    &lt;version&gt;0.0.1-SNAPSHOT&lt;/version&gt;      
-&lt;/dependency&gt;
-</code>
-</pre>
 
-<pre>
-<code>
+### Maven Dependency
+
+Add the following Maven dependency to your project:
+
+```xml
+<dependency>
+    <groupId>com.github.magicsih</groupId>
+    <artifactId>adb4j</artifactId>
+    <version>0.0.1-SNAPSHOT</version>      
+</dependency>
+```
+
+## Example Usage
+
+Here is a simple example demonstrating how to use ADB4J:
+
+```java
 AdbContext adbContext = new DefaultAdbContext(
     Executors.newFixedThreadPool(10, new CustomizableThreadFactory("ADBNetwork-")),
     Executors.newFixedThreadPool(10, new CustomizableThreadFactory("AdpcCallback-"))
-    );
+);
 adbContext.init();
 
 String packageName = "com.sec.android.app.clockpackage";
@@ -36,5 +42,4 @@ s8.start();
 
 Thread.currentThread().join();   
 adbContext.shutdown();
-</code>
-</pre>
+```
